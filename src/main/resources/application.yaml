@@ -1,11 +1,11 @@
 spring:
   application:
     name: product_service
+  profiles:
+    active: ${ACTIVE_PROFILE:local}
   datasource:
     url: jdbc:postgresql://aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres?prepareThreshold=0
-    username: postgres.nrjjmdnqutbddiutekfs
-    password: Khoile2004..
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   jpa:
-    hibernate:
-      ddl-auto: update
     show-sql: true
