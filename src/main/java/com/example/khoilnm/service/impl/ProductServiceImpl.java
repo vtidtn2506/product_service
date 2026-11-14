@@ -28,6 +28,11 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    public List<ProductResponse> getProductsByIds(List<String> ids) {
+        return productMapper.toResponses(productRepository.findAllByIdInAndIsDelete(ids, NOT_DELETED));
+    }
+
+    @Override
     public ProductResponse getProduct(String id) {
         Product product = productRepository.findByIdAndIsDelete(id, NOT_DELETED)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found: " + id));
