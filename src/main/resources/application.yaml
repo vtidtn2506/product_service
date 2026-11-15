@@ -1,5 +1,5 @@
 server:
-  port: ${SERVER_PORT:8081}
+  port: ${SERVER_PORT:8079}
 spring:
   application:
     name: product_service
@@ -13,3 +13,21 @@ spring:
     hibernate:
       ddl-auto: none
     show-sql: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: product-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # ErrorHandlingDeserializer: a message that can't be deserialized is logged and skipped
+      # instead of failing forever on the same offset
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        # order_service sends no __TypeId__ header → always deserialize into our own event class
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.example.khoilnm.dto.event.OrderCreatedEvent
+
+stock:
+  # Max time a deduct-stock request waits for the row lock of a product held by another request
+  lock-timeout: ${STOCK_LOCK_TIMEOUT:3s}
