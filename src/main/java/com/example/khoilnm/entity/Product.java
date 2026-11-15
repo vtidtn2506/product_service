@@ -29,4 +29,7 @@ public class Product extends BaseEntity {
 
     @Column(name = "price")
     private int price;
+
+    @Column(name = "stock")
+    private int stock;
 }

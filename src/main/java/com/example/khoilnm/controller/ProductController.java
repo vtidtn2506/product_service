@@ -20,7 +20,6 @@ public class ProductController {
 
     @GetMapping
     public BaseResponse<List<ProductResponse>> getProducts(@RequestParam(required = false) List<String> ids) {
-
         if (ids != null && !ids.isEmpty()) {
             return BaseResponse.success(productService.getProductsByIds(ids));
         }

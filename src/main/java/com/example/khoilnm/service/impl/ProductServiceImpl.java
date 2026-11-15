@@ -1,15 +1,15 @@
 package com.example.khoilnm.service.impl;
 
+import com.example.khoilnm.constant.ProductResponseCode;
 import com.example.khoilnm.dto.response.ProductResponse;
 import com.example.khoilnm.entity.Product;
 import com.example.khoilnm.mapper.ProductMapper;
 import com.example.khoilnm.repository.ProductRepository;
 import com.example.khoilnm.service.ProductService;
+import com.khoilnm.commoncore.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -35,7 +35,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductResponse getProduct(String id) {
         Product product = productRepository.findByIdAndIsDelete(id, NOT_DELETED)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found: " + id));
+                .orElseThrow(() -> new BusinessException(ProductResponseCode.PRODUCT_NOT_FOUND, "Product not found: " + id,
+                        ProductResponseCode.PRODUCT_NOT_FOUND.getDefaultHttpStatus()));
         return productMapper.toResponse(product);
     }
 }
