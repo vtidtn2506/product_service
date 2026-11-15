@@ -87,7 +87,6 @@ public class ProductServiceImpl implements ProductService {
             throw businessException(INSUFFICIENT_STOCK, "Insufficient stock: " + String.join("; ", insufficient));
         }
 
-        // Managed entities: dirty checking issues the UPDATEs at commit (auditing sets last_modified_*)
         quantities.forEach((id, quantity) -> {
             Product product = products.get(id);
             product.setStock(product.getStock() - quantity);
@@ -98,10 +97,6 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private Map<String, Product> lockProducts(Map<String, Integer> quantities) {
-        // Postgres waits forever for a row lock by default. SET LOCAL only applies to the current
-        // transaction, so it's also safe behind the Supabase pooler (transaction mode).
-        entityManager.createNativeQuery("SET LOCAL lock_timeout = '%dms'".formatted(lockTimeout.toMillis()))
-                .executeUpdate();
         try {
             return productRepository.findAllByIdInForUpdate(quantities.keySet()).stream()
                     .collect(Collectors.toMap(Product::getId, Function.identity()));
