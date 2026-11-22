@@ -1,6 +1,6 @@
 package com.example.khoilnm.service;
 
-import com.example.khoilnm.dto.request.DeductStockRequest;
+import com.example.khoilnm.dto.event.OrderCreatedEvent;
 import com.example.khoilnm.dto.response.ProductResponse;
 
 import java.util.List;
@@ -12,5 +12,9 @@ public interface ProductService {
 
     ProductResponse getProduct(String id);
 
-    List<ProductResponse> deductStock(DeductStockRequest request);
+    /**
+     * Deducts the stock of a created order (from the order-create event), all-or-nothing.
+     * Idempotent on orderId: a redelivered event is ignored.
+     */
+    void deductStockForOrder(OrderCreatedEvent event);
 }

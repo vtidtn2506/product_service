@@ -3,13 +3,9 @@ package com.example.khoilnm.controller;
 import com.example.khoilnm.dto.response.ProductResponse;
 import com.example.khoilnm.service.ProductService;
 import com.khoilnm.commoncore.response.BaseResponse;
-import com.example.khoilnm.dto.request.DeductStockRequest;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,10 +29,5 @@ public class ProductController {
     @GetMapping("/{id}")
     public BaseResponse<ProductResponse> getProduct(@PathVariable String id) {
         return BaseResponse.success(productService.getProduct(id));
-    }
-
-    @PostMapping("/deduct-stock")
-    public BaseResponse<List<ProductResponse>> deductStock(@Valid @RequestBody DeductStockRequest request) {
-        return BaseResponse.success(productService.deductStock(request), "Stock deducted");
     }
 }

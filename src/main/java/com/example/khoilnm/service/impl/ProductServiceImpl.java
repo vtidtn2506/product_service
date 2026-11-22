@@ -1,23 +1,21 @@
 package com.example.khoilnm.service.impl;
 
-import com.example.khoilnm.dto.request.DeductStockItemRequest;
-import com.example.khoilnm.dto.request.DeductStockRequest;
+import com.example.khoilnm.dto.event.OrderCreatedEvent;
 import com.example.khoilnm.dto.response.ProductResponse;
 import com.example.khoilnm.entity.Product;
+import com.example.khoilnm.entity.StockDeduction;
 import com.example.khoilnm.mapper.ProductMapper;
 import com.example.khoilnm.repository.ProductRepository;
+import com.example.khoilnm.repository.StockDeductionRepository;
 import com.example.khoilnm.service.ProductService;
 import com.khoilnm.commoncore.exception.BusinessException;
 import com.khoilnm.commoncore.response.ResponseCode;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -36,11 +34,8 @@ public class ProductServiceImpl implements ProductService {
     private static final int NOT_DELETED = 0;
 
     private final ProductRepository productRepository;
+    private final StockDeductionRepository stockDeductionRepository;
     private final ProductMapper productMapper;
-    private final EntityManager entityManager;
-
-    @Value("${stock.lock-timeout:3s}")
-    private Duration lockTimeout;
 
     @Override
     public List<ProductResponse> getProducts() {
@@ -61,12 +56,25 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public List<ProductResponse> deductStock(DeductStockRequest request) {
-        // Sum quantities per product (the same product may appear in several items)
-        Map<String, Integer> quantities = request.getItems().stream()
-                .collect(Collectors.toMap(DeductStockItemRequest::getProductId,
-                        DeductStockItemRequest::getQuantity, Math::addExact, TreeMap::new));
+    public void deductStockForOrder(OrderCreatedEvent event) {
+        if (stockDeductionRepository.existsByOrderId(event.orderId())) {
+            log.info("Stock of order {} already deducted, ignoring duplicate event", event.orderId());
+            return;
+        }
 
+        // Sum quantities per product (the same product may appear in several items);
+        // TreeMap = rows are always locked in the same order → no deadlock between orders
+        deduct(event.items().stream()
+                .collect(Collectors.toMap(OrderCreatedEvent.Item::productId,
+                        OrderCreatedEvent.Item::quantity, Math::addExact, TreeMap::new)));
+
+        // Same transaction as the deduction: both commit or neither. If two copies of the event are
+        // processed at the same time, UNIQUE(order_id) makes the second one fail and roll back.
+        stockDeductionRepository.saveAndFlush(StockDeduction.builder().orderId(event.orderId()).build());
+        log.info("Deducted stock for order {}", event.orderId());
+    }
+
+    private void deduct(Map<String, Integer> quantities) {
         Map<String, Product> products = lockProducts(quantities);
 
         List<String> missing = quantities.keySet().stream().filter(id -> !products.containsKey(id)).toList();
@@ -91,9 +99,8 @@ public class ProductServiceImpl implements ProductService {
             Product product = products.get(id);
             product.setStock(product.getStock() - quantity);
         });
-        log.info("Deducted stock: {}", quantities);
-
-        return productMapper.toResponses(quantities.keySet().stream().map(products::get).toList());
+        List<Product> toSave = (List<Product>) products.values();
+        productRepository.saveAll(toSave);
     }
 
     private Map<String, Product> lockProducts(Map<String, Integer> quantities) {
