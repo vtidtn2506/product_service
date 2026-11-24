@@ -12,9 +12,6 @@ import org.springframework.kafka.annotation.RetryableTopic;
 import org.springframework.stereotype.Component;
 
 
-/**
- * Deducts the stock of every created order.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor

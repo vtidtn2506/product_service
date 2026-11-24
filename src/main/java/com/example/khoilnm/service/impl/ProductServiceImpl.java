@@ -5,10 +5,8 @@ import com.example.khoilnm.dto.event.OrderCreatedEvent;
 import com.example.khoilnm.dto.event.StockDeductResultEvent;
 import com.example.khoilnm.dto.response.ProductResponse;
 import com.example.khoilnm.entity.Product;
-import com.example.khoilnm.entity.StockDeduction;
 import com.example.khoilnm.mapper.ProductMapper;
 import com.example.khoilnm.repository.ProductRepository;
-import com.example.khoilnm.repository.StockDeductionRepository;
 import com.example.khoilnm.service.ProductService;
 import com.khoilnm.commoncore.exception.BusinessException;
 import com.khoilnm.commoncore.response.ResponseCode;
@@ -37,7 +35,6 @@ public class ProductServiceImpl implements ProductService {
     private static final int NOT_DELETED = 0;
 
     private final ProductRepository productRepository;
-    private final StockDeductionRepository stockDeductionRepository;
     private final ProductMapper productMapper;
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
@@ -61,20 +58,10 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void deductStockForOrder(OrderCreatedEvent event) {
-        if (stockDeductionRepository.existsByOrderId(event.orderId())) {
-            log.info("Stock of order {} already deducted, ignoring duplicate event", event.orderId());
-            return;
-        }
-
-        // Sum quantities per product (the same product may appear in several items);
-        // TreeMap = rows are always locked in the same order → no deadlock between orders
         deduct(event.items().stream()
                 .collect(Collectors.toMap(OrderCreatedEvent.Item::productId,
                         OrderCreatedEvent.Item::quantity, Math::addExact, TreeMap::new)));
 
-        // Same transaction as the deduction: both commit or neither. If two copies of the event are
-        // processed at the same time, UNIQUE(order_id) makes the second one fail and roll back.
-        stockDeductionRepository.saveAndFlush(StockDeduction.builder().orderId(event.orderId()).build());
         log.info("Deducted stock for order {}", event.orderId());
         StockDeductResultEvent result = new StockDeductResultEvent(event.orderId(), StockDeductResultEvent.Status.SUCCESS, "");
         publish(KafkaTopic.STOCK_DEDUCT_RESULT, event.orderId(), result);
@@ -99,7 +86,6 @@ public class ProductServiceImpl implements ProductService {
             throw businessException(PRODUCT_NOT_FOUND, "Product not found: " + String.join(", ", missing));
         }
 
-        // Rows are locked: the stock read here can't change until this transaction ends → no oversell
         List<String> insufficient = quantities.entrySet().stream()
                 .filter(entry -> entry.getValue() > products.get(entry.getKey()).getStock())
                 .map(entry -> {

@@ -12,9 +12,5 @@ public interface ProductService {
 
     ProductResponse getProduct(String id);
 
-    /**
-     * Deducts the stock of a created order (from the order-create event), all-or-nothing.
-     * Idempotent on orderId: a redelivered event is ignored.
-     */
     void deductStockForOrder(OrderCreatedEvent event);
 }
