@@ -1,6 +1,8 @@
 package com.example.khoilnm.service.impl;
 
+import com.example.khoilnm.constant.KafkaTopic;
 import com.example.khoilnm.dto.event.OrderCreatedEvent;
+import com.example.khoilnm.dto.event.StockDeductResultEvent;
 import com.example.khoilnm.dto.response.ProductResponse;
 import com.example.khoilnm.entity.Product;
 import com.example.khoilnm.entity.StockDeduction;
@@ -13,6 +15,7 @@ import com.khoilnm.commoncore.response.ResponseCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +39,7 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final StockDeductionRepository stockDeductionRepository;
     private final ProductMapper productMapper;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @Override
     public List<ProductResponse> getProducts() {
@@ -72,6 +76,19 @@ public class ProductServiceImpl implements ProductService {
         // processed at the same time, UNIQUE(order_id) makes the second one fail and roll back.
         stockDeductionRepository.saveAndFlush(StockDeduction.builder().orderId(event.orderId()).build());
         log.info("Deducted stock for order {}", event.orderId());
+        StockDeductResultEvent result = new StockDeductResultEvent(event.orderId(), StockDeductResultEvent.Status.SUCCESS, "");
+        publish(KafkaTopic.STOCK_DEDUCT_RESULT, event.orderId(), result);
+    }
+
+    private void publish(String topic, String orderId, Object payload) {
+        kafkaTemplate.send(topic, orderId, payload).whenComplete((result, ex) -> {
+            if (ex != null) {
+                log.error("Failed to publish {} for order {}", topic, orderId, ex);
+            } else {
+                log.info("Published {} for order {} (partition={}, offset={})", topic, orderId,
+                        result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
+            }
+        });
     }
 
     private void deduct(Map<String, Integer> quantities) {
@@ -99,8 +116,7 @@ public class ProductServiceImpl implements ProductService {
             Product product = products.get(id);
             product.setStock(product.getStock() - quantity);
         });
-        List<Product> toSave = (List<Product>) products.values();
-        productRepository.saveAll(toSave);
+        productRepository.saveAll(products.values());
     }
 
     private Map<String, Product> lockProducts(Map<String, Integer> quantities) {
