@@ -13,7 +13,6 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.stereotype.Component;
 import org.springframework.util.backoff.FixedBackOff;
 
-import java.util.Map;
 
 /**
  * Deducts the stock of every created order.
@@ -35,12 +34,10 @@ public class OrderCreatedConsumer {
 
     @Bean
     public static DefaultErrorHandler kafkaErrorHandler() {
-        DefaultErrorHandler handler = new DefaultErrorHandler(
+        return new DefaultErrorHandler(
                 (record, ex) -> log.error("Giving up on {} (partition={}, offset={}, key={}): {}",
                         record.topic(), record.partition(), record.offset(), record.key(),
                         NestedExceptionUtils.getMostSpecificCause(ex).getMessage()),
                 new FixedBackOff(1000L, 3));
-        handler.setClassifications(Map.of(), true);
-        return handler;
     }
 }
