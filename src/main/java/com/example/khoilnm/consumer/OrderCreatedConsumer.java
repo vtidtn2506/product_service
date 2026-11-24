@@ -6,12 +6,10 @@ import com.example.khoilnm.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.springframework.context.annotation.Bean;
-import org.springframework.core.NestedExceptionUtils;
+import org.springframework.kafka.annotation.BackOff;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.annotation.RetryableTopic;
 import org.springframework.stereotype.Component;
-import org.springframework.util.backoff.FixedBackOff;
 
 
 /**
@@ -23,6 +21,11 @@ import org.springframework.util.backoff.FixedBackOff;
 public class OrderCreatedConsumer {
     private final ProductService productService;
 
+    @RetryableTopic(
+            attempts = "4",
+            backOff = @BackOff(delay = 1000, multiplier = 2.0, maxDelay = 10000),
+            exclude = { IllegalArgumentException.class }
+    )
     @KafkaListener(topics = KafkaTopic.ORDER_CREATE)
     public void onOrderCreated(ConsumerRecord<String, OrderCreatedEvent> record) {
         OrderCreatedEvent event = record.value();
@@ -30,14 +33,5 @@ public class OrderCreatedConsumer {
                 record.topic(), record.partition(), record.offset(),
                 event.orderId(), event.customerId(), event.amount(), event.items().size());
         productService.deductStockForOrder(event);
-    }
-
-    @Bean
-    public static DefaultErrorHandler kafkaErrorHandler() {
-        return new DefaultErrorHandler(
-                (record, ex) -> log.error("Giving up on {} (partition={}, offset={}, key={}): {}",
-                        record.topic(), record.partition(), record.offset(), record.key(),
-                        NestedExceptionUtils.getMostSpecificCause(ex).getMessage()),
-                new FixedBackOff(1000L, 3));
     }
 }
