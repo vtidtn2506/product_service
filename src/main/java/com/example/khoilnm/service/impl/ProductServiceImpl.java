@@ -12,7 +12,8 @@ import com.khoilnm.commoncore.exception.BusinessException;
 import com.khoilnm.commoncore.response.ResponseCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.PessimisticLockingFailureException;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,12 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.example.khoilnm.constant.ProductResponseCode.INSUFFICIENT_STOCK;
 import static com.example.khoilnm.constant.ProductResponseCode.PRODUCT_NOT_FOUND;
-import static com.example.khoilnm.constant.ProductResponseCode.STOCK_LOCK_TIMEOUT;
 
 @Slf4j
 @Service
@@ -37,6 +38,7 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final ProductMapper productMapper;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final RedissonClient redissonClient;
 
     @Override
     public List<ProductResponse> getProducts() {
@@ -58,11 +60,27 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void deductStockForOrder(OrderCreatedEvent event) {
-        deduct(event.items().stream()
-                .collect(Collectors.toMap(OrderCreatedEvent.Item::productId,
-                        OrderCreatedEvent.Item::quantity, Math::addExact, TreeMap::new)));
+        List<String> sortedIds = event.items().stream().map(OrderCreatedEvent.Item::productId).sorted().toList();
+        String lockKey = "lock:products:" + String.join(",", sortedIds);
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean locked = false;
+        try {
+            locked = lock.tryLock(10, 5, TimeUnit.SECONDS);
+            if (!locked) {
+                throw new IllegalStateException("Khong lay duoc lock");
+            }
+            deduct(event.items().stream()
+                    .collect(Collectors.toMap(OrderCreatedEvent.Item::productId,
+                            OrderCreatedEvent.Item::quantity, Math::addExact, TreeMap::new)));
+        } catch (InterruptedException e){
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        } finally {
+            if (locked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
 
-        log.info("Deducted stock for order {}", event.orderId());
         StockDeductResultEvent result = new StockDeductResultEvent(event.orderId(), StockDeductResultEvent.Status.SUCCESS, "");
         publish(KafkaTopic.STOCK_DEDUCT_RESULT, event.orderId(), result);
     }
@@ -79,7 +97,8 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private void deduct(Map<String, Integer> quantities) {
-        Map<String, Product> products = lockProducts(quantities);
+        Map<String, Product> products = productRepository.findAllByIdInAndIsDelete(quantities.keySet(), NOT_DELETED)
+                .stream().collect(Collectors.toMap(Product::getId, Function.identity()));
 
         List<String> missing = quantities.keySet().stream().filter(id -> !products.containsKey(id)).toList();
         if (!missing.isEmpty()) {
@@ -105,15 +124,15 @@ public class ProductServiceImpl implements ProductService {
         productRepository.saveAll(products.values());
     }
 
-    private Map<String, Product> lockProducts(Map<String, Integer> quantities) {
-        try {
-            return productRepository.findAllByIdInForUpdate(quantities.keySet()).stream()
-                    .collect(Collectors.toMap(Product::getId, Function.identity()));
-        } catch (PessimisticLockingFailureException e) {
-            log.warn("Timed out waiting for product lock {}: {}", quantities.keySet(), e.getMessage());
-            throw businessException(STOCK_LOCK_TIMEOUT, "Product is busy, please retry");
-        }
-    }
+//    private Map<String, Product> lockProducts(Map<String, Integer> quantities) {
+//        try {
+//            return productRepository.findAllByIdInForUpdate(quantities.keySet()).stream()
+//                    .collect(Collectors.toMap(Product::getId, Function.identity()));
+//        } catch (PessimisticLockingFailureException e) {
+//            log.warn("Timed out waiting for product lock {}: {}", quantities.keySet(), e.getMessage());
+//            throw businessException(STOCK_LOCK_TIMEOUT, "Product is busy, please retry");
+//        }
+//    }
 
     private static BusinessException businessException(ResponseCode code, String message) {
         return new BusinessException(code, message, code.getDefaultHttpStatus());
